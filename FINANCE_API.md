@@ -156,3 +156,27 @@ Content-Type: application/json
 - 销售及采购同步以调用方提交的来源数据为输入。银行流水支持 UTF-8 CSV 或解析后的 JSON。银行专用网银模板、XLSX 导入、PDF 报表、运维恢复入口及邮件提醒仍需补齐。
 - 当前支持可配置账龄区间、科目编码分段规则、线性流程节点及金额、部门、费用类型路由。凭证模板、完整审批图、可配置数据范围和按钮级授权尚待补充。
 - 报表公式需按实际科目配置，业务生成的凭证按总账流程审核及记账后进入账簿和财务报表。React 原型需要把演示数据源换成真实请求。
+
+## 账号密码自主注册
+
+匿名接口包含 GET /api/auth/captcha 和 POST /api/auth/register，仍执行写请求 Origin 来源校验。
+
+先 GET /api/auth/captcha，在 data 中读取 image（PNG Data URL）和 expires_in（300 秒），浏览器需保留此次请求建立的 JSESSIONID。刷新图片会替换旧验证码。答案只保存在当前会话中，不包含在接口响应里。
+
+注册请求示例
+
+```json
+{
+  "username": "new_user",
+  "password": "x",
+  "captcha": "图片中的字符"
+}
+```
+
+点击注册后先校验图形验证码。验证码不区分大小写，每次校验尝试后都会消费，错误、过期、刷新后旧码及再次使用均返回 HTTP 400。前端失败后需重新获取图片。
+
+注册仅设置账号和密码，保留非空要求、已有密码存储容量限制和数据库账号唯一约束。没有手机、邮箱、确认密码或密码复杂度校验，注册接口允许一位密码。密码继续复用 PBKDF2 哈希存储。重复账号返回 HTTP 409 和“账号已存在”。
+
+成功返回 HTTP 201，data 包含 id 和 username。该接口不自动登录，随后调用 POST /api/auth/login。name 默认为账号，角色固定为“注册用户”，is_admin 固定为 false。新角色不自动分配业务权限，由管理员配置。客户端提交 role_id 或 is_admin 不会被用于注册用户创建。
+
+测试分为 RegistrationCaptchaServiceTest、RegistrationServiceTest 和 RegistrationIntegrationTest，分别覆盖验证码单次与并发消费、注册字段白名单和短密码，以及隔离测试库中注册、登录、会话轮换和权限拦截。集成测试需要显式配置测试数据源，测试账号随事务回滚。

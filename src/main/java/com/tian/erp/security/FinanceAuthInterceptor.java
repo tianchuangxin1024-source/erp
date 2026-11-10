@@ -35,7 +35,8 @@ public class FinanceAuthInterceptor implements HandlerInterceptor {
             checkOrigin(request);
         }
         String path = request.getRequestURI().substring(request.getContextPath().length());
-        if (path.equals("/api/auth/login") || path.equals("/api/auth/logout")) {
+        if (path.equals("/api/auth/login") || path.equals("/api/auth/logout")
+                || path.equals("/api/auth/captcha") || path.equals("/api/auth/register")) {
             return true;
         }
         var session = request.getSession(false);

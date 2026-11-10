@@ -9,6 +9,8 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 
 import com.tian.erp.common.response.ApiResponse;
 import com.tian.erp.security.FinanceSession;
+import com.tian.erp.security.RegistrationCaptchaService;
+import jakarta.servlet.http.HttpServletResponse;
 import com.tian.erp.service.finance.AuthService;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.web.bind.annotation.*;
@@ -23,12 +25,14 @@ import java.util.Map;
 @RequestMapping("/api/auth")
 public class AuthController {
     private final AuthService auth;
+    private final RegistrationCaptchaService captcha;
 
     /**
      * 注入负责凭据校验和用户资料查询的服务。
      */
-    public AuthController(AuthService auth) {
+    public AuthController(AuthService auth, RegistrationCaptchaService captcha) {
         this.auth = auth;
+        this.captcha = captcha;
     }
 
     /**
@@ -46,6 +50,26 @@ public class AuthController {
         return ApiResponse.ok(auth.profile(user));
     }
 
+    /** 返回绑定当前会话的注册验证码，刷新后旧验证码立即失效。 */
+    @Operation(summary = "注册图形验证码", description = "匿名可访问。返回 data.image PNG Data URL 和 expires_in 秒数，验证码五分钟有效，答案仅存储在会话中。")
+    @GetMapping("/captcha")
+    ApiResponse<Map<String, Object>> captcha(HttpServletRequest request, HttpServletResponse response) {
+        response.setHeader("Cache-Control", "no-store");
+        return ApiResponse.ok(captcha.create(request.getSession(true)));
+    }
+
+    /** 点击注册时先校验图形验证码，再以账号密码创建普通用户。 */
+    @Operation(summary = "账号密码注册", description = "仅设置 username 和 password，captcha 为当前会话图形验证码。不要求手机、邮箱、确认密码或密码复杂度，成功后使用登录接口建立会话。")
+    @io.swagger.v3.oas.annotations.parameters.RequestBody(required = true,
+            content = @Content(mediaType = "application/json", schema = @Schema(type = "object"), examples = {
+                    @ExampleObject(name = "注册", value = "{\"username\":\"new_user\",\"password\":\"123\",\"captcha\":\"图片中的字符\"}")
+            }))
+    @PostMapping("/register")
+    @ResponseStatus(org.springframework.http.HttpStatus.CREATED)
+    ApiResponse<Map<String, Object>> register(@RequestBody Map<String, Object> body, HttpServletRequest request) {
+        captcha.verify(request.getSession(false), body.get("captcha"));
+        return ApiResponse.created(auth.register(body));
+    }
     /**
      * 读取当前有效会话中的用户资料及授权。
      */

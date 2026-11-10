@@ -10,6 +10,7 @@ import java.util.Map;
 import javax.crypto.SecretKeyFactory;
 import javax.crypto.spec.PBEKeySpec;
 
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
@@ -33,6 +34,24 @@ public class AuthService {
         this.db = db;
     }
 
+    /** 自主注册仅使用账号和密码，普通注册角色的业务权限由管理员维护。 */
+    @Transactional
+    public Map<String, Object> register(Map<String, Object> body) {
+        String username = requiredText(body, "username");
+        String encoded = hash(password(body, 1));
+        db.update("INSERT IGNORE INTO fin_role(name,description) VALUES ('注册用户','自主注册的普通用户')", Map.of());
+        var role = db.one("SELECT id,status FROM fin_role WHERE name='注册用户'", Map.of());
+        require("已启用".equals(role.get("status")), "注册暂不可用，请联系管理员");
+        long userId;
+        try {
+            userId = db.insert("fin_user", values("username", username, "name", username,
+                    "role_id", role.get("id"), "password_hash", encoded, "is_admin", false));
+        } catch (DuplicateKeyException ex) {
+            throw new ResponseStatusException(org.springframework.http.HttpStatus.CONFLICT, "账号已存在");
+        }
+        db.audit(userId, "system/users", "自主注册", userId, null);
+        return values("id", userId, "username", username);
+    }
     /**
      * 按启用状态检索用户并验证密码，返回供会话建立使用的内部用户记录。
      */
